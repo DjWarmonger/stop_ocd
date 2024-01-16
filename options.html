@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Stop_OCD_2 Options</title>
+    <link rel="stylesheet" type="text/css" href="options.css">
+</head>
+<body>
+    <h1>Stop_OCD_2 Options</h1>
+    
+    <div id="error-message"></div> <!-- Error message placeholder -->
+    
+    <form id="blocklist-form">
+        <label for="website-url">Website URL:</label>
+        <input type="text" id="website-url" name="website-url" placeholder="Enter website to block">
+        
+        <label for="block-duration">Block duration:</label>
+        <input type="number" id="block-duration" name="block-duration" min="1" placeholder="Duration in minutes (default 60)" value="60">
+        
+        <label for="block-type">Block type:</label>
+        <select id="block-type" name="block-type">
+            <option value="domain">Domain</option>
+            <option value="url">Specific URL</option>
+        </select>
+        
+        <button type="submit">Add to block list</button>
+    </form>
+    
+    <div id="block-list"></div>
+    
+    <script type="module" src="options.js"></script>
+</body>
+</html>
