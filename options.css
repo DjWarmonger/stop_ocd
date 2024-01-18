@@ -1,4 +1,4 @@
-/* This file is to style the options page for Stop_OCD_2 */
+/* This file is to style the options page for Stop OCD */
 
 body {
     font-family: Arial, sans-serif;
@@ -15,6 +15,11 @@ h1 {
     color: red;
     margin-bottom: 10px;
     display: none; /* Only show this when there is an error. */
+}
+
+.container {
+    max-width: 800px;
+    margin: 0 auto; /* This centers the container */
 }
 
 #blocklist-form {

@@ -1,28 +1,22 @@
 document.addEventListener('DOMContentLoaded', (event) => {
 
-    /*
-    getSetting('blockList', []).then((blockList) => {
+	const urlParams = new URLSearchParams(window.location.search);
 
-        const foundElement = blockList.find(item => {
-            return checkUrlMatch(item, url);
-        });
-        if (foundElement)
-        {
-            const minutes = (Date.now() - foundElement.blockedAt) / 60000;
+	timeInfo = 'a moment ago';
+	miliseconds = urlParams.get('lastvisittime');
+	if (miliseconds)
+	{
+		const minutes = Math.floor((Date.now() - miliseconds) / 60000);
+		if (minutes > 1)
+		{
+			timeInfo = `${minutes} minutes ago`
+		}
+		else if (minutes > 0)
+		{
+			timeInfo = `a minute ago`;
+		}
+	}
 
-            document.getElementById('message').textContent = "Site blocked. You already visited it " +
-            minutes + " minutes ago.";
-        }
-    });
-    */
-
-    const urlParams = new URLSearchParams(window.location.search);
-    document.getElementById('message').textContent = "Site blocked. You already visited it " +
-    "TODO" + " minutes ago.";
-
-    /*
-    const urlParams = new URLSearchParams(window.location.search);
-    document.getElementById('message').textContent = "Site blocked. You already visited it " +
-    decodeURIComponent(urlParams.get('url')) + " minutes ago.";
-    */
+	document.getElementById('message').textContent = `Site ${urlParams.get('url')} is blocked.`;
+	document.getElementById('timePassed').textContent = `You already visited it ${timeInfo}.`;
 });

@@ -1,27 +1,42 @@
-// background.js
+function isUserLoggedIn() {
+  return new Promise((resolve) => {
+    chrome.identity.getProfileUserInfo(function(userInfo) {
+      //console.log(`User logged in: ${!!userInfo.email}`);
+      resolve(!!userInfo.email);
+    });
+  });
+}
 
 function saveSetting(key, value) {
-  chrome.storage.local.set({ [key]: value });
+  isUserLoggedIn().then(isLoggedIn => {
+    const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
+    storage.set({ [key]: value });
+  });
 }
 
 function getSetting(key, defaultValue = null) {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get([key], function (result) {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-      }
+    isUserLoggedIn().then(isLoggedIn => {
+      const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
 
-      const value = result[key];
-      if (value === undefined) {
-        resolve(defaultValue);
-      } else if (value === 'number' && Number.isInteger(value)) {
-        resolve(parseInt(value, 10));
-      } else {
-        resolve(value);
-      }
+      storage.get([key], function (result) {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          const value = result[key];
+          if (value === undefined) {
+            resolve(defaultValue);
+          } else if (typeof value === 'number' && Number.isInteger(value)) {
+            resolve(parseInt(value, 10));
+          } else {
+            resolve(value);
+          }
+        }
+      });
     });
   });
 }
+
 
 function isLastTab(url, tabs) {
   console.log("Checking if it's the last open tab: ", url)
@@ -29,8 +44,6 @@ function isLastTab(url, tabs) {
 }
 
 function blockSite(url, blockList) {
-  //newId = blockList.length ? blockList[blockList.length - 1].id + 1 : 1;
-
   newId = 1;
   if (blockList.length) {
     id = blockList[blockList.length - 1].id;
@@ -38,9 +51,6 @@ function blockSite(url, blockList) {
       newId = id + 1;
     }
   }
-  
-  // Fixme: newId is NaN
-  console.log("Blocking site, rule id: ", newId);
 
   blockList.push({
     id: newId,
@@ -54,13 +64,11 @@ function blockSite(url, blockList) {
 
 function checkUrlMatch(item, url)
 {
-  //console.log(`item.url: ${item.url}, url: ${url}`)
   itemDomain =  new URL(item.url).hostname;
   urlDomain = new URL(url).hostname;
 
   ret = false;
   if (item.type == 'domain') {
-    //console.log(`url domain: ${urlDomain}, url.hostname: ${itemDomain}`)
     ret = urlDomain.includes(itemDomain);
   }
   else{
@@ -71,40 +79,49 @@ function checkUrlMatch(item, url)
 
 function isSiteBlocked(url) {
 
+  blockInfo = {
+    blocked: false,
+    lastVisitTime: undefined
+  }
+
   return getSetting('blockList', []).then((blockList) => {
     
     if (blockList == undefined || blockList == null) {
-      return false;
+      return blockInfo;
     }
     if (!blockList.length) {
-      return false;
+      return blockInfo;
     }
 
     const currentTime = Date.now();
-    console.log('Checking if site is blocked for URL:', url);
 
     ret =  blockList.some(item => {
 
       if (item.blockedAt === undefined || item.blockedAt == null) {
-        // FIXME: undefined
-        console.log('item.blockedAt: ', item.blockedAt)
-        return false;
+        return blockInfo;
       }
 
       const matchUrl = checkUrlMatch(item, url);
       const timePassed = currentTime - item.blockedAt;
       const durationMs = item.duration * 60000; // Convert duration from minutes to milliseconds
-      console.log(`matchUrl: ${matchUrl}, timePassed: ${timePassed}`)
 
       const isBlocked = matchUrl && timePassed < durationMs;
+      /*
       console.log(
         `URL: ${item.url}, BlockedAt: ${new Date(item.blockedAt).toISOString()}, Duration: ${item.duration}, CurrentTime: ${new Date(currentTime).toISOString()}, IsBlocked: ${isBlocked}`
-      ); // Added logging
+      );
+      */
+
+      if (isBlocked)
+      {
+        blockInfo.blocked = true;
+        blockInfo.lastVisitTime = item.blockedAt;
+      }
+
       return isBlocked;
     });
 
-    console.log(`Is site blocked: ${ret}`);
-    return ret;
+    return blockInfo;
   });
 }
 
@@ -122,36 +139,40 @@ function checkTabExists(tabId, callback) {
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url)
   {
-      isSiteBlocked(changeInfo.url).then(isBlocked => {
-        if (isBlocked) {
-          console.log(`Updated tab, closing ${changeInfo.url}`)
-          checkTabExists(tabId, (id) => {
-            chrome.tabs.update({url: chrome.runtime.getURL('blocked.html')});
+    isSiteBlocked(changeInfo.url).then(blockInfo => {
+      if (blockInfo.blocked) {
+        checkTabExists(tabId, (id) => {
+          chrome.tabs.update({url: chrome.runtime.getURL('blocked.html') + `?url=${changeInfo.url}&lastvisittime=${blockInfo.lastVisitTime}`});
 
-            //chrome.tabs.remove(id);
-            // TODO: Show block page instead
-          });
-        }
-      });
+        });
+      }
+    });
   }
 });
 
-// Alternatively, using webNavigation
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
-  if (isSiteBlocked(details.url)) {
-
-    // FIXME: exception at closing non-existent tab
-    console.log(`Updated navigation, closing ${details.url}`)
-    checkTabExists(details.tabId, (id) => {
-      //chrome.tabs.remove(id);
+  if(details.url)
+  {
+    isSiteBlocked(details.url).then(blockInfo => {
+      if (blockInfo.blocked) {
+        checkTabExists(details.tabId, (id) => {
+          //console.log(`Updated navigation, closing ${details.url}`)
+          chrome.tabs.update({url: chrome.runtime.getURL('blocked.html') + `?url=${details.url}&lastvisittime=${blockInfo.lastVisitTime}`});
+        });
+      }
     });
-
   }
+  // FIXME: exception at closing non-existent tab?
+  /*
+  checkTabExists(details.tabId, (id) => {
+    //chrome.tabs.remove(id);
+  });
+  */
 });
 
 function updateBlockTime(blockList, urlToUpdate) {
 
-  console.log('Blocklist: ', blockList)
+  //console.log('Blocklist: ', blockList)
   // FIXME? Update every url that is a sub-url of target url (including whole domain), but not unrelated urls within same domain?
   blockList.forEach(item => {
       if (item.url.includes(urlToUpdate.hostname)) {
@@ -164,7 +185,7 @@ function updateBlockTime(blockList, urlToUpdate) {
 }
 
 chrome.runtime.onInstalled.addListener(function() {
-    console.log("Stop_OCD_2 extension has been installed.");
+    console.log("Stop OCD extension has been installed.");
     const defaultSettings = {
         blockList: [],
         whitelist: []
@@ -195,14 +216,12 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
     let closedTabUrl = tabUrls[tabId];
     if (closedTabUrl) {
 
-      console.log("Tab closed: ", closedTabUrl);
+      //console.log("Tab closed: ", closedTabUrl);
 
       const urlToCheck = closedTabUrl.hostname;
       if (isLastTab(urlToCheck, tabs)) {
         getSetting('blockList', []).then((blockList) => {
                     const updatedBlockList = updateBlockTime(blockList, closedTabUrl);
-                    console.log('Block Listener details:', updatedBlockList);
-                    //updateBlockingRules(updatedBlockList);
         }).catch((error) => {
                 console.error('Failed to retrieve block list:', error);
         });

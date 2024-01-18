@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Stop_OCD_2",
-  "version": "1.0",
+  "name": "Stop OCD",
+  "version": "1.0.0",
   "description": "Block user-specified websites for a designated amount of time.",
   "permissions": [
     "tabs",
     "webNavigation",
     "storage",
+    "identity",
     "declarativeNetRequest"
   ],
   "host_permissions": [
