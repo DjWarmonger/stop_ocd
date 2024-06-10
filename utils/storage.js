@@ -1,21 +1,43 @@
-// Save a setting to Chrome storage using Promises
-function saveSetting(key, value) {
-  chrome.storage.local.set({ [key]: value });
-}
+import { log } from '../log.js';
 
-// Retrieve a setting from Chrome storage using Promises
-function getSetting(key, defaultValue = null) {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get([key], function (result) {
-      if (chrome.runtime.lastError) {
-        reject(chrome.runtime.lastError);
-      } else if (result[key] === undefined) {
-        resolve(defaultValue);
-      } else {
-        resolve(result[key]);
-      }
+export function isUserLoggedIn()
+{
+  return new Promise((resolve) => {
+    chrome.identity.getProfileUserInfo(function(userInfo) {
+      log(`User logged in: ${!!userInfo.email}`);
+      resolve(!!userInfo.email);
     });
   });
 }
+  
+export function saveSetting(key, value)
+{
+  isUserLoggedIn().then(isLoggedIn => {
+    const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
+    storage.set({ [key]: value });
+  });
+}
+  
+export function getSetting(key, defaultValue = null)
+{
+  return new Promise((resolve, reject) => {
+    isUserLoggedIn().then(isLoggedIn => {
+      const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
 
-export { saveSetting, getSetting };
+      storage.get([key], function (result) {
+        if (chrome.runtime.lastError) {
+          reject(chrome.runtime.lastError);
+        } else {
+          const value = result[key];
+          if (value === undefined) {
+            resolve(defaultValue);
+          } else if (typeof value === 'number' && Number.isInteger(value)) {
+            resolve(parseInt(value, 10));
+          } else {
+            resolve(value);
+          }
+        }
+      });
+    });
+  });
+}

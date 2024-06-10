@@ -1,6 +1,6 @@
 // Utility functions for managing the block behavior
 
-function blockSite(url, blockList) {
+export function blockSite(url, blockList) {
 
   console.log('UNUSED FUNCTION blockSite CALLED');
 
@@ -27,5 +27,3 @@ function onTabClosed(tabId, tabs) {
     return null;
   }
 }
-
-export { isSiteBlocked, isLastTab, blockSite, onTabClosed };

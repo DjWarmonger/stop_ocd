@@ -1,3 +1,5 @@
 // popup.js
 // Logic for the popup will be added later.
-console.log("Popup script of Stop OCD is running.");
+import { log } from './log.js';
+
+log("Popup script of Stop OCD is running.");

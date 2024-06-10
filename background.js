@@ -1,114 +1,60 @@
-function isUserLoggedIn() {
-  return new Promise((resolve) => {
-    chrome.identity.getProfileUserInfo(function(userInfo) {
-      //console.log(`User logged in: ${!!userInfo.email}`);
-      resolve(!!userInfo.email);
-    });
-  });
-}
+import { log } from './log.js';
+import { saveSetting, getSetting } from './utils/storage.js';
+// FIXME: Unused import doesn't work?
+import { blockSite } from './utils/blockManagement.js';
 
-function saveSetting(key, value) {
-  isUserLoggedIn().then(isLoggedIn => {
-    const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
-    storage.set({ [key]: value });
-  });
-}
-
-function getSetting(key, defaultValue = null) {
-  return new Promise((resolve, reject) => {
-    isUserLoggedIn().then(isLoggedIn => {
-      const storage = isLoggedIn ? chrome.storage.sync : chrome.storage.local;
-
-      storage.get([key], function (result) {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          const value = result[key];
-          if (value === undefined) {
-            resolve(defaultValue);
-          } else if (typeof value === 'number' && Number.isInteger(value)) {
-            resolve(parseInt(value, 10));
-          } else {
-            resolve(value);
-          }
-        }
-      });
-    });
-  });
-}
-
-
-function isLastTab(url, tabs) {
-  console.log("Checking if it's the last open tab: ", url)
-  return tabs.filter(tab => tab.url.includes(url)).length === 0;
-}
-
-function blockSite(url, blockList) {
-  newId = 1;
-  if (blockList.length) {
-    id = blockList[blockList.length - 1].id;
-    if (Number.isFinite(id)) {
-      newId = id + 1;
-    }
-  }
-
-  blockList.push({
-    id: newId,
-    url: url,
-    type: 'domain',
-    blockedAt: Date.now(),
-    duration: 60
-  });
-  return blockList;
-}
-
-function checkUrlMatch(item, url)
+function isLastTab(url, tabs)
 {
-  itemDomain =  new URL(item.url).hostname;
-  urlDomain = new URL(url).hostname;
+  let lastTab = (tabs.filter(tab => tab.url.includes(url)).length == 0);
+  return lastTab;
+}
 
-  ret = false;
+function checkUrlMatch(item, domain)
+{
+  // TODO: ignore things that are not webpages (ie. extension tabs)
+  let itemDomain = new URL(item).hostname;
+  let urlDomain = new URL(domain).hostname;
+
+  let ret = false;
   if (item.type == 'domain') {
-    ret = urlDomain.includes(itemDomain);
+    ret = itemDomain.includes(urlDomain)
   }
   else{
-    ret = url == item.url;
+    ret = urlDomain == itemDomain;
   }
   return ret;
 }
 
 function isSiteBlocked(url) {
 
-  blockInfo = {
+  let blockInfo = {
     blocked: false,
     lastVisitTime: undefined
   }
 
-  return getSetting('blockList', []).then((blockList) => {
+  return getSetting('lastVisitList', []).then((lastVisitList) => {
     
-    if (blockList == undefined || blockList == null) {
+    if (lastVisitList == undefined || lastVisitList == null) {
       return blockInfo;
     }
-    if (!blockList.length) {
+    if (!lastVisitList.length) {
       return blockInfo;
     }
 
     const currentTime = Date.now();
 
-    ret =  blockList.some(item => {
+    lastVisitList.some(item => {
 
       if (item.blockedAt === undefined || item.blockedAt == null) {
         return blockInfo;
       }
 
-      const matchUrl = checkUrlMatch(item, url);
-      const timePassed = currentTime - item.blockedAt;
-      const durationMs = item.duration * 60000; // Convert duration from minutes to milliseconds
+      const matchUrl = checkUrlMatch(new URL(url), new URL(item.url));
+      const isBlocked = matchUrl && currentTime < item.expirationDate;
 
-      const isBlocked = matchUrl && timePassed < durationMs;
       /*
-      console.log(
-        `URL: ${item.url}, BlockedAt: ${new Date(item.blockedAt).toISOString()}, Duration: ${item.duration}, CurrentTime: ${new Date(currentTime).toISOString()}, IsBlocked: ${isBlocked}`
+      log(
+        `URL: ${item.url}, BlockedAt: ${new Date(item.blockedAt).toString()}, Expires at: ${new Date(item.expirationDate).toString()}, CurrentTime: ${new Date(currentTime).toString()}, IsBlocked: ${isBlocked}`
       );
       */
 
@@ -132,7 +78,7 @@ function checkTabExists(tabId, callback) {
   }
   catch (error)
   {
-    console.log(`Tab ${tabId} does not exist`);
+    log(`Tab ${tabId} does not exist`);
   }
 }
 
@@ -156,7 +102,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
     isSiteBlocked(details.url).then(blockInfo => {
       if (blockInfo.blocked) {
         checkTabExists(details.tabId, (id) => {
-          //console.log(`Updated navigation, closing ${details.url}`)
+          log(`Updated navigation, closing ${details.url}`)
           chrome.tabs.update({url: chrome.runtime.getURL('blocked.html') + `?url=${details.url}&lastvisittime=${blockInfo.lastVisitTime}`});
         });
       }
@@ -170,25 +116,51 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   */
 });
 
-function updateBlockTime(blockList, urlToUpdate) {
+function updateBlockTime(urlToUpdate, expirationDate) 
+{
+	if (!(urlToUpdate instanceof URL)) 
+	{
+		console.error("urlToUpdate must be a URL object");
+		return;
+	}
 
-  //console.log('Blocklist: ', blockList)
-  // FIXME? Update every url that is a sub-url of target url (including whole domain), but not unrelated urls within same domain?
-  blockList.forEach(item => {
-      if (item.url.includes(urlToUpdate.hostname)) {
-          item.blockedAt = Date.now();
-          console.log('Updated last visit time for ', item.url);
+  getSetting('lastVisitList', []).then((lastVisitList) => {
+
+    let found = false;
+    lastVisitList.forEach(item => 
+    {
+      if (item.url.includes(urlToUpdate.hostname)) 
+      {
+        item.blockedAt = Date.now();
+        item.expirationDate = expirationDate;
+        log('Updated last visit time for ', item.url);
+        found = true;
       }
+    });
+
+    if (!found) 
+    {
+      // Add new entry to lastVisitList
+      lastVisitList.push(
+      {
+        url: urlToUpdate.toString(),
+        blockedAt: Date.now(),
+        expirationDate: expirationDate
+      });
+      log('Added new URL to lastVisitList: ', urlToUpdate.toString());
+    }
+
+    saveSetting('lastVisitList', lastVisitList);
+    return lastVisitList;
   });
-  saveSetting('blockList', blockList);
-  return blockList
 }
 
 chrome.runtime.onInstalled.addListener(function() {
     console.log("Stop OCD extension has been installed.");
     const defaultSettings = {
         blockList: [],
-        whitelist: []
+        whitelist: [],
+        lastVisitList: []
     };
     for (const [key, value] of Object.entries(defaultSettings)) {
         getSetting(key, value).then((currentValue) => {
@@ -210,25 +182,56 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     }
 });
 
-chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+chrome.tabs.onRemoved.addListener((tabId, removeInfo) =>
+{
+	chrome.tabs.query({}, (tabs) =>
+	{
+		let closedTabUrl = tabUrls[tabId];
+		if (closedTabUrl)
+		{
+			// Ensure closedTabUrl is a valid URL object or string
+			if (typeof closedTabUrl === 'string' || closedTabUrl instanceof URL)
+			{
+				// Proceed with operations using closedTabUrl
+				if (isLastTab(closedTabUrl, tabs))
+				{
+					getSetting('blockList', []).then((blockList) =>
+					{
+						let urlMatchFound = false;
+            let expirationDate = undefined;
+						blockList.forEach(blockItem =>
+						{
+							if (checkUrlMatch(closedTabUrl, blockItem.url))
+							{
+								urlMatchFound = true;
+                expirationDate = Date.now() + blockItem.duration * 60000;
+							}
+						});
 
-  chrome.tabs.query({}, (tabs) => {
-    let closedTabUrl = tabUrls[tabId];
-    if (closedTabUrl) {
+            if (urlMatchFound)
+            {
+              log("Saving expiration date: ", expirationDate);
+              updateBlockTime(closedTabUrl, expirationDate);
+            }
+					}).catch((error) =>
+					{
+						console.error('Failed to check blockList for URL match:', error);
+					});
+				}
+			}
+			else
+			{
+				console.error('Invalid URL stored for tabId:', tabId);
+			}
+		}
+		else
+		{
+			console.log('No URL found for closed tabId:', tabId);
+		}
 
-      //console.log("Tab closed: ", closedTabUrl);
-
-      const urlToCheck = closedTabUrl.hostname;
-      if (isLastTab(urlToCheck, tabs)) {
-        getSetting('blockList', []).then((blockList) => {
-                    const updatedBlockList = updateBlockTime(blockList, closedTabUrl);
-        }).catch((error) => {
-                console.error('Failed to retrieve block list:', error);
-        });
-      }
-    delete tabUrls[tabId];
-  }
-  });
+		// Cleanup the URL from tabUrls to prevent memory leaks
+		delete tabUrls[tabId];
+	});
 });
 
 function createBlockListener(blockList) {

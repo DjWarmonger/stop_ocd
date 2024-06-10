@@ -1,6 +1,6 @@
 # Block closed tabs for a designated amount of time
 
-Having problem with compulsive web browsing? Keep scrolling for news when there are just none? Block OCD is a solution.
+Having problem with compulsive web browsing? Keep scrolling for news when there are just none? Stop OCD is a solution.
 
 Once all the visible tabs of specific website / domain are closed, the site will remain blocked for a number of minutes (hours) configured in extension setting. So you won't be able to come back.
 
