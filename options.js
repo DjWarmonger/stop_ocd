@@ -90,3 +90,5 @@ function addWebsiteToBlockList(event) {
 		durationInput.value = '60'; // Reset duration input to default
 	});
 }
+
+// TODO: Remove page from last visit list when it's removed from block list
