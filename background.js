@@ -116,15 +116,17 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   */
 });
 
-function updateBlockTime(urlToUpdate, expirationDate) 
+async function updateBlockTime(urlToUpdate, expirationDate) 
 {
-	if (!(urlToUpdate instanceof URL)) 
-	{
-		console.error("urlToUpdate must be a URL object");
-		return;
-	}
+  if (!(urlToUpdate instanceof URL)) 
+  {
+    console.error("urlToUpdate must be a URL object");
+    return;
+  }
 
-  getSetting('lastVisitList', []).then((lastVisitList) => {
+  try
+  {
+    let lastVisitList = await getSetting('lastVisitList', []);
 
     let found = false;
     lastVisitList.forEach(item => 
@@ -150,9 +152,12 @@ function updateBlockTime(urlToUpdate, expirationDate)
       log('Added new URL to lastVisitList: ', urlToUpdate.toString());
     }
 
-    saveSetting('lastVisitList', lastVisitList);
-    return lastVisitList;
-  });
+    await saveSetting('lastVisitList', lastVisitList);
+  }
+  catch (error)
+  {
+    console.error('Failed to update block time:', error);
+  }
 }
 
 chrome.runtime.onInstalled.addListener(function() {
