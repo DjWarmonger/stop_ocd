@@ -1,7 +1,5 @@
 import { log } from './log.js';
 import { saveSetting, getSetting } from './utils/storage.js';
-// FIXME: Unused import doesn't work?
-import { blockSite } from './utils/blockManagement.js';
 
 function isLastTab(url, tabs)
 {
@@ -9,18 +7,34 @@ function isLastTab(url, tabs)
   return lastTab;
 }
 
-function checkUrlMatch(item, domain)
+function checkUrlMatch(item, domain, blockType)
 {
-  // TODO: ignore things that are not webpages (ie. extension tabs)
   let itemDomain = new URL(item).hostname;
   let urlDomain = new URL(domain).hostname;
 
-  let ret = false;
-  if (item.type == 'domain') {
-    ret = itemDomain.includes(urlDomain)
+  let itemUrl = new URL(item);
+
+  if (itemUrl.pathname.startsWith('/embed')) {
+    // Exception for Youtube videos
+    log("Ignoring embedded content");
+    return false; // Do not block if it's not the main site
   }
-  else{
-    ret = urlDomain == itemDomain;
+
+  // Check if the top-level and second-level domain names match exactly
+  let ret = false;
+  if (blockType == 'domain') {
+
+    if (itemDomain !== urlDomain) {
+      ret = false;
+    }
+    else
+    {
+      ret = true;
+    }
+  }
+  else {
+    log("Checking exact address: ", itemUrl.pathname);
+    ret = urlDomain === itemDomain;
   }
   return ret;
 }
@@ -49,7 +63,7 @@ function isSiteBlocked(url) {
         return blockInfo;
       }
 
-      const matchUrl = checkUrlMatch(new URL(url), new URL(item.url));
+      const matchUrl = checkUrlMatch(new URL(url), new URL(item.url), item.blockType);
       const isBlocked = matchUrl && currentTime < item.expirationDate;
 
       /*
@@ -116,7 +130,7 @@ chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   */
 });
 
-async function updateBlockTime(urlToUpdate, expirationDate) 
+async function updateBlockTime(urlToUpdate, expirationDate, blockType) 
 {
   if (!(urlToUpdate instanceof URL)) 
   {
@@ -147,7 +161,8 @@ async function updateBlockTime(urlToUpdate, expirationDate)
       {
         url: urlToUpdate.toString(),
         blockedAt: Date.now(),
-        expirationDate: expirationDate
+        expirationDate: expirationDate,
+        blockType: blockType
       });
       log('Added new URL to lastVisitList: ', urlToUpdate.toString());
     }
@@ -160,22 +175,51 @@ async function updateBlockTime(urlToUpdate, expirationDate)
   }
 }
 
-chrome.runtime.onInstalled.addListener(function() {
-    console.log("Stop OCD extension has been installed.");
-    const defaultSettings = {
-        blockList: [],
-        whitelist: [],
-        lastVisitList: []
-    };
-    for (const [key, value] of Object.entries(defaultSettings)) {
-        getSetting(key, value).then((currentValue) => {
-            if (currentValue === null) {
-                saveSetting(key, value);
-            }
-        }).catch((error) => {
-            console.error('Failed to initialize default settings:', error);
-        });
-    }
+chrome.runtime.onInstalled.addListener(async function() 
+{
+	console.log("Stop OCD extension has been installed.");
+	const defaultSettings = 
+	{
+		blockList: [],
+		whitelist: [],
+		lastVisitList: []
+	};
+
+	// Initialize default settings if not present
+	for (const [key, value] of Object.entries(defaultSettings)) 
+	{
+		try 
+		{
+			const currentValue = await getSetting(key, value);
+			if (currentValue === null) 
+			{
+				await saveSetting(key, value);
+			}
+		} 
+		catch (error) 
+		{
+			console.error('Failed to initialize default settings:', error);
+		}
+	}
+
+	// Fix issue from 1.1.0
+	try 
+	{
+		let lastVisitList = await getSetting('lastVisitList', []);
+		lastVisitList.forEach(item => 
+		{
+			if (!item.blockType) 
+			{
+				item.blockType = "domain";
+				log('Set default blockType for ', item.url);
+			}
+		});
+		await saveSetting('lastVisitList', lastVisitList);
+	} 
+	catch (error) 
+	{
+		console.error('Failed to update lastVisitList:', error);
+	}
 });
 
 let tabUrls = {};
@@ -204,19 +248,21 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) =>
 					{
 						let urlMatchFound = false;
             let expirationDate = undefined;
+            let blockType = undefined;
 						blockList.forEach(blockItem =>
 						{
-							if (checkUrlMatch(closedTabUrl, blockItem.url))
+							if (checkUrlMatch(closedTabUrl, blockItem.url, blockItem.type))
 							{
 								urlMatchFound = true;
                 expirationDate = Date.now() + blockItem.duration * 60000;
+                blockType = blockItem.type;
 							}
 						});
 
             if (urlMatchFound)
             {
               log("Saving expiration date: ", expirationDate);
-              updateBlockTime(closedTabUrl, expirationDate);
+              updateBlockTime(closedTabUrl, expirationDate, blockType);
             }
 					}).catch((error) =>
 					{
