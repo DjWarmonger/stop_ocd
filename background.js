@@ -14,8 +14,8 @@ function checkUrlMatch(item, domain, blockType)
 
   let itemUrl = new URL(item);
 
-  if (itemUrl.pathname.startsWith('/embed')) {
-    // Exception for Youtube videos
+  if (itemUrl.pathname.startsWith('/embed') || itemUrl.pathname.startsWith('/plugins')) {
+    // Exception for Youtube videos and Facebook embeds
     log("Ignoring embedded content");
     return false; // Do not block if it's not the main site
   }
@@ -267,6 +267,8 @@ chrome.tabs.onRemoved.addListener((tabId, removeInfo) =>
 					}).catch((error) =>
 					{
 						console.error('Failed to check blockList for URL match:', error);
+
+            log("blockList: ", blockList);
 					});
 				}
 			}
